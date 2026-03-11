@@ -35,6 +35,36 @@
 #include "extern.h"
 
 /*
+ * iOS SDK availability: mkfifoat/mknodat were introduced in iOS 16.
+ * Avoid direct calls on older deployment targets.
+ */
+static int
+rsync_mkfifoat_compat(int dirfd, const char *path, mode_t mode)
+{
+#if defined(__APPLE__)
+	if (__builtin_available(iOS 16.0, tvOS 16.0, watchOS 9.0, *))
+		return mkfifoat(dirfd, path, mode);
+	errno = ENOTSUP;
+	return -1;
+#else
+	return mkfifoat(dirfd, path, mode);
+#endif
+}
+
+static int
+rsync_mknodat_compat(int dirfd, const char *path, mode_t mode, dev_t dev)
+{
+#if defined(__APPLE__)
+	if (__builtin_available(iOS 16.0, tvOS 16.0, watchOS 9.0, *))
+		return mknodat(dirfd, path, mode, dev);
+	errno = ENOTSUP;
+	return -1;
+#else
+	return mknodat(dirfd, path, mode, dev);
+#endif
+}
+
+/*
  * The type of temporary files we can create.
  */
 enum	tmpmode {
@@ -153,7 +183,7 @@ mktemp_internalat(int pfd, char *path, int slen, enum tmpmode mode,
 				return(-1);
 			break;
 		case MKTEMP_FIFO:
-			if (mkfifoat(pfd, path, S_IRUSR|S_IWUSR) == 0)
+			if (rsync_mkfifoat_compat(pfd, path, S_IRUSR|S_IWUSR) == 0)
 				return(0);
 			else if (errno != EEXIST)
 				return(-1);
@@ -163,7 +193,7 @@ mktemp_internalat(int pfd, char *path, int slen, enum tmpmode mode,
 				errno = EINVAL;
 				return(-1);
 			}
-			if (mknodat(pfd, path, S_IRUSR|S_IWUSR|dev_type, dev)
+			if (rsync_mknodat_compat(pfd, path, S_IRUSR|S_IWUSR|dev_type, dev)
 			    == 0)
 				return(0);
 			else if (errno != EEXIST)

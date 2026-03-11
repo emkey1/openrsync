@@ -154,6 +154,7 @@ struct	opts {
 	int		 no_motd;		/* --no-motd */
 	int		 numeric_ids;		/* --numeric-ids */
 	int		 one_file_system;	/* -x */
+	int		 compress;		/* -z (ssh transport compression) */
 	int		 ignore_times;		/* -I */
 	int		 ignore_dir_times;	/* -O */
 	int		 ignore_link_times;	/* -J */

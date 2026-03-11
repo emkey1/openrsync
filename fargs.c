@@ -82,6 +82,8 @@ fargs_cmdline(struct sess *sess, const struct fargs *f, size_t *skip)
 			}
 		} else
 			addargs(&args, "ssh");
+		if (sess->opts->compress)
+			addargs(&args, "-C");
 
 		addargs(&args, "%s", f->host);
 		addargs(&args, "%s", rsync_path);

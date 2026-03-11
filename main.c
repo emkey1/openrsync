@@ -442,7 +442,12 @@ main(int argc, char *argv[])
 			opts.one_file_system++;
 			break;
 		case 'z':
-			fprintf(stderr, "%s: -z not supported yet\n", getprogname());
+			/*
+			 * openrsync does not currently implement rsync-protocol
+			 * payload compression. Preserve CLI compatibility by
+			 * requesting transport compression from ssh.
+			 */
+			opts.compress = 1;
 			break;
 		case 0:
 			/* Non-NULL flag values (e.g., --sender). */
