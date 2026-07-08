@@ -147,7 +147,8 @@ struct	opts {
 	int		 preserve_perms;	/* -p */
 	int		 preserve_links;	/* -l */
 	int		 preserve_gids;		/* -g */
-	int		 preserve_uids;		/* -u */
+	int		 preserve_uids;		/* -o */
+	int		 update;		/* -u / --update */
 	int		 del;			/* --delete */
 	int		 devices;		/* --devices */
 	int		 specials;		/* --specials */

@@ -671,7 +671,20 @@ check_file(int rootfd, const struct flist *f, struct stat *st,
 	if (!S_ISREG(st->st_mode))
 		return 2;
 
-	/* TODO: add support for --checksum */
+	/*
+	 * --update: never overwrite a destination file that is newer than
+	 * the source -- takes priority over every other check below,
+	 * matching real rsync's documented precedence for -u.
+	 */
+	if (sess->opts->update && st->st_mtime > f->st.mtime)
+		return 0;
+
+	/* TODO: add support for --checksum. A naive "always report possible
+	 * match, let the block-transfer engine sort it out" implementation
+	 * was tried and produced an incorrect skip (content that genuinely
+	 * differed was left unsynced) plus a large, unexplained delay --
+	 * reverted rather than shipped; needs real investigation before
+	 * landing, not a quick flag-gated tweak like --update was. */
 
 	/* if ignore_times is on file needs attention */
 	if (sess->opts->ignore_times)

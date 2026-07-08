@@ -355,6 +355,7 @@ const struct option	 lopts[] = {
     { "timeout",	required_argument, NULL,		OP_TIMEOUT },
     { "times",		no_argument,	&opts.preserve_times,	1 },
     { "no-times",	no_argument,	&opts.preserve_times,	0 },
+    { "update",		no_argument,	&opts.update,		1 },
     { "verbose",	no_argument,	&verbose,		1 },
     { "no-verbose",	no_argument,	&verbose,		0 },
     { "version",	no_argument,	NULL,			'V' },
@@ -381,7 +382,7 @@ main(int argc, char *argv[])
 
 	opts.max_size = opts.min_size = -1;
 
-	while ((c = getopt_long(argc, argv, "aDe:ghIJlnOoprtVvxz",
+	while ((c = getopt_long(argc, argv, "aDe:ghIJlnOoprtuVvxz",
 	    lopts, &lidx)) != -1) {
 		switch (c) {
 		case 'D':
@@ -430,6 +431,9 @@ main(int argc, char *argv[])
 			break;
 		case 't':
 			opts.preserve_times = 1;
+			break;
+		case 'u':
+			opts.update = 1;
 			break;
 		case 'v':
 			verbose++;
