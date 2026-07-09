@@ -99,6 +99,8 @@ fargs_cmdline(struct sess *sess, const struct fargs *f, size_t *skip)
 
 	/* Shared arguments. */
 
+	if (sess->opts->compress)
+		addargs(&args, "--compress");
 	if (sess->opts->del)
 		addargs(&args, "--delete");
 	if (sess->opts->numeric_ids)

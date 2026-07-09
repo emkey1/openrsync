@@ -530,6 +530,7 @@ rsync_socket(const struct opts *opts, int sd, const struct fargs *f)
 
 	rc = 0;
 out:
+	sess_compress_free(&sess);
 	free(args);
 	return rc;
 }

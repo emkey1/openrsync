@@ -105,5 +105,6 @@ rsync_client(const struct opts *opts, int fd, const struct fargs *f)
 
 	rc = 0;
 out:
+	sess_compress_free(&sess);
 	return rc;
 }

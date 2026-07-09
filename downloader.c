@@ -495,7 +495,20 @@ again:
 		if (!io_read_buf(sess, p->fdin, buf, sz)) {
 			ERRX1("io_read_int");
 			goto out;
-		} else if (!buf_copy(buf, sz, p)) {
+		}
+		if (sess->opts->compress) {
+			void	*dbuf = NULL;
+			size_t	 dlen = 0;
+
+			if (!sess_compress_recv(sess, buf, sz, &dbuf, &dlen)) {
+				ERRX1("sess_compress_recv");
+				goto out;
+			}
+			free(buf);
+			buf = dbuf;
+			sz = dlen;
+		}
+		if (!buf_copy(buf, sz, p)) {
 			ERRX1("buf_copy");
 			goto out;
 		}

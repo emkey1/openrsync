@@ -259,6 +259,8 @@ struct	sess {
 	int		   mplex_reads; /* multiplexing reads? */
 	size_t		   mplex_read_remain; /* remaining bytes */
 	int		   mplex_writes; /* multiplexing writes? */
+	void		  *zsend; /* opaque z_stream* for --compress send */
+	void		  *zrecv; /* opaque z_stream* for --compress recv */
 };
 
 /*
@@ -412,6 +414,21 @@ void		 hash_file_final(MD4_CTX *, unsigned char *);
 
 void		 copy_file(int, const char *, const struct flist *);
 void		 link_file(int, const char *, const struct flist *);
+
+/*
+ * Real rsync-protocol payload compression for --compress: compresses
+ * (respectively decompresses) one literal-data chunk at a time using a
+ * session-persistent raw-deflate stream, flushed to a byte boundary
+ * (Z_SYNC_FLUSH) after each chunk so each wire unit decodes
+ * independently of what follows. Match tokens (unchanged blocks) are
+ * never compressed, matching real rsync's behavior -- they're already
+ * compact. *outbuf is malloc'd and owned by the caller.
+ */
+int		 sess_compress_send(struct sess *, const void *, size_t,
+		    void **, size_t *);
+int		 sess_compress_recv(struct sess *, const void *, size_t,
+		    void **, size_t *);
+void		 sess_compress_free(struct sess *);
 
 int		 mkpath(char *);
 

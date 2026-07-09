@@ -149,17 +149,43 @@ send_up_fsm(struct sess *sess, size_t *phase,
 
 		sz = MINIMUM(MAX_CHUNK,
 			up->stat.curlen - up->stat.curpos);
-		if (!io_lowbuffer_alloc(sess, wb, wbsz, wbmax, isz)) {
-			ERRX1("io_lowbuffer_alloc");
-			return 0;
+
+		if (sess->opts->compress) {
+			void	*cbuf = NULL;
+			size_t	 clen = 0;
+
+			if (!sess_compress_send(sess,
+			    up->stat.map + up->stat.curpos, sz,
+			    &cbuf, &clen)) {
+				ERRX1("sess_compress_send");
+				return 0;
+			}
+			if (!io_lowbuffer_alloc(sess, wb, wbsz, wbmax, isz)) {
+				ERRX1("io_lowbuffer_alloc");
+				free(cbuf);
+				return 0;
+			}
+			io_lowbuffer_int(sess, *wb, &pos, *wbsz, (int32_t)clen);
+			if (!io_lowbuffer_alloc(sess, wb, wbsz, wbmax, clen)) {
+				ERRX1("io_lowbuffer_alloc");
+				free(cbuf);
+				return 0;
+			}
+			io_lowbuffer_buf(sess, *wb, &pos, *wbsz, cbuf, clen);
+			free(cbuf);
+		} else {
+			if (!io_lowbuffer_alloc(sess, wb, wbsz, wbmax, isz)) {
+				ERRX1("io_lowbuffer_alloc");
+				return 0;
+			}
+			io_lowbuffer_int(sess, *wb, &pos, *wbsz, sz);
+			if (!io_lowbuffer_alloc(sess, wb, wbsz, wbmax, sz)) {
+				ERRX1("io_lowbuffer_alloc");
+				return 0;
+			}
+			io_lowbuffer_buf(sess, *wb, &pos, *wbsz,
+				up->stat.map + up->stat.curpos, sz);
 		}
-		io_lowbuffer_int(sess, *wb, &pos, *wbsz, sz);
-		if (!io_lowbuffer_alloc(sess, wb, wbsz, wbmax, sz)) {
-			ERRX1("io_lowbuffer_alloc");
-			return 0;
-		}
-		io_lowbuffer_buf(sess, *wb, &pos, *wbsz,
-			up->stat.map + up->stat.curpos, sz);
 
 		up->stat.curpos += sz;
 		if (up->stat.curpos == up->stat.curlen)
