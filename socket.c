@@ -508,12 +508,18 @@ rsync_socket(const struct opts *opts, int sd, const struct fargs *f)
 	LOG2("socket detected client version %d, server version %d, seed %d",
 	    sess.lver, sess.rver, sess.seed);
 
-	assert(f->mode == FARGS_RECEIVER);
-
-	LOG2("client starting receiver: %s", f->host);
-	if (!rsync_receiver(&sess, sd, sd, f->sink)) {
-		ERRX1("rsync_receiver");
-		goto out;
+	if (f->mode != FARGS_RECEIVER) {
+		LOG2("client starting sender: %s", f->host);
+		if (!rsync_sender(&sess, sd, sd, f->sourcesz, f->sources)) {
+			ERRX1("rsync_sender");
+			goto out;
+		}
+	} else {
+		LOG2("client starting receiver: %s", f->host);
+		if (!rsync_receiver(&sess, sd, sd, f->sink)) {
+			ERRX1("rsync_receiver");
+			goto out;
+		}
 	}
 
 #if 0

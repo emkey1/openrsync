@@ -192,16 +192,26 @@ fargs_parse(size_t argc, char *argv[], struct opts *opts)
 				errx(ERR_SYNTAX, "local file in list of "
 				    "remote sources: %s", f->sources[i]);
 			}
-	} else {
-		if (f->mode != FARGS_RECEIVER)
-			errx(ERR_SYNTAX, "sender mode for remote "
-				"daemon receivers not yet supported");
+	} else if (f->mode == FARGS_RECEIVER) {
 		for (i = 0; i < f->sourcesz; i++) {
 			if (fargs_is_daemon(f->sources[i]))
 				continue;
 			errx(ERR_SYNTAX, "non-remote daemon file "
 				"in list of remote daemon sources: "
 				"%s", f->sources[i]);
+		}
+	} else {
+		/*
+		 * Pushing to a remote daemon: the lone remote endpoint is
+		 * f->sink (already used above to populate f->host/f->module),
+		 * so every source must be a plain local path instead.
+		 */
+		for (i = 0; i < f->sourcesz; i++) {
+			if (!fargs_is_remote(f->sources[i]))
+				continue;
+			errx(ERR_SYNTAX,
+			    "remote file in list of local sources: %s",
+			    f->sources[i]);
 		}
 	}
 
@@ -221,6 +231,35 @@ fargs_parse(size_t argc, char *argv[], struct opts *opts)
 			return f;
 		} else if (f->mode != FARGS_RECEIVER)
 			return f;
+	}
+
+	if (f->remote && f->mode == FARGS_SENDER) {
+		/*
+		 * Pushing to a remote daemon: f->sources[] are all local
+		 * (validated above) and left untouched -- only f->sink
+		 * carries the "rsync://host[:port]/module/path" or
+		 * "host::module/path" prefix that needs stripping down to
+		 * a bare "module/path", mirroring the per-source stripping
+		 * done below for the pull/receiver direction.
+		 */
+		assert(f->host != NULL);
+		assert(len > 0);
+		cp = f->sink;
+		j = strlen(cp);
+		if (strncasecmp(cp, "rsync://", 8) == 0) {
+			size_t module_offset = len;
+			cp += 8;
+			if ((ccp = strchr(cp, ':')) != NULL) {
+				*ccp = '\0';
+				module_offset += strcspn(ccp + 1, "/") + 1;
+			}
+			memmove(f->sink, f->sink + module_offset + 8 + 1,
+			    j - module_offset - 8);
+		} else {
+			/* host::module/path */
+			memmove(f->sink, f->sink + len + 2, j - len - 1);
+		}
+		return f;
 	}
 
 	/*
@@ -598,7 +637,6 @@ basedir:
 	 */
 
 	if (fargs->remote && opts.ssh_prog == NULL) {
-		assert(fargs->mode == FARGS_RECEIVER);
 		if ((rc = rsync_connect(&opts, &sd, fargs)) == 0) {
 			rc = rsync_socket(&opts, sd, fargs);
 			close(sd);
