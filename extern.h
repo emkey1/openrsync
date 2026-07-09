@@ -160,6 +160,7 @@ struct	opts {
 	int		 ignore_dir_times;	/* -O */
 	int		 ignore_link_times;	/* -J */
 	int		 size_only;		/* --size-only */
+	int		 progress;		/* --progress */
 	int		 alt_base_mode;
 	off_t		 max_size;		/* --max-size */
 	off_t		 min_size;		/* --min-size */

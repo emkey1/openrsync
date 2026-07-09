@@ -107,6 +107,35 @@ log_file(struct sess *sess,
 }
 
 /*
+ * Print a --progress update line for the file currently being
+ * downloaded. Unlike log_file() above (which is LOG1, i.e. gated on
+ * -v), this is independent of verbosity -- matching real rsync's
+ * --progress, which reports regardless of -v.
+ * Updates in place (no trailing newline) until the file is done, at
+ * which point a final newline-terminated line is printed so later
+ * output doesn't overwrite it.
+ */
+static void
+progress_update(const struct sess *sess, const struct download *dl,
+    const struct flist *f, int done)
+{
+	off_t	total = f->st.size;
+	float	frac = (total == 0) ? 100.0 :
+	    100.0 * dl->total / (float)total;
+
+	if (!sess->opts->progress || sess->opts->server)
+		return;
+
+	if (!done)
+		printf("\r%s  %12jd  %5.1f%%", f->path,
+		    (intmax_t)dl->total, frac);
+	else
+		printf("\r%s  %12jd  %5.1f%% (done)\n", f->path,
+		    (intmax_t)dl->total, 100.0);
+	fflush(stdout);
+}
+
+/*
  * Reinitialise a download context w/o overwriting the persistent parts
  * of the structure (like p->fl or p->flsz) for index "idx".
  * The MD4 context is pre-seeded.
@@ -475,6 +504,7 @@ again:
 		LOG4("%s: received %zu B block", p->fname, sz);
 		MD4_Update(&p->ctx, buf, sz);
 		free(buf);
+		progress_update(sess, p, f, 0);
 
 		/* Fast-track more reads as they arrive. */
 
@@ -513,6 +543,7 @@ again:
 		p->total += sz;
 		LOG4("%s: copied %zu B", p->fname, sz);
 		MD4_Update(&p->ctx, buf, sz);
+		progress_update(sess, p, f, 0);
 
 		/* Fast-track more reads as they arrive. */
 
@@ -566,6 +597,7 @@ again:
 	}
 
 	log_file(sess, p, f);
+	progress_update(sess, p, f, 1);
 	download_cleanup(p, 0);
 	return 1;
 out:

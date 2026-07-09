@@ -377,6 +377,7 @@ const struct option	 lopts[] = {
     { "perms",		no_argument,	&opts.preserve_perms,	1 },
     { "no-perms",	no_argument,	&opts.preserve_perms,	0 },
     { "port",		required_argument, NULL,		OP_PORT },
+    { "progress",	no_argument,	&opts.progress,		1 },
     { "recursive",	no_argument,	&opts.recursive,	1 },
     { "no-recursive",	no_argument,	&opts.recursive,	0 },
     { "rsh",		required_argument, NULL,		'e' },
@@ -724,7 +725,7 @@ usage:
 	    "\t[--contimeout=seconds] [--compare-dest=dir] [--copy-dest=dir]\n"
 	    "\t[--link-dest=dir] [--del] [--exclude]\n"
 	    "\t[--exclude-from=file] [--include] [--include-from=file]\n"
-	    "\t[--no-motd] [--numeric-ids] [--port=portnumber]\n"
+	    "\t[--no-motd] [--numeric-ids] [--port=portnumber] [--progress]\n"
 	    "\t[--rsync-path=program] [--size-only] [--timeout=seconds]\n"
 	    "\tsource ... directory\n",
 	    getprogname());

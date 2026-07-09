@@ -25,11 +25,41 @@
 #include <fcntl.h>
 #include <inttypes.h>
 #include <poll.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
 #include "extern.h"
+
+/*
+ * Print a --progress update for the file currently being sent, using
+ * the same "\r ... final \n" convention as downloader.c's
+ * progress_update() (which handles the pull/receive direction). This
+ * covers the push/send direction: a local-to-local sync's sender role
+ * always runs in our own process with a real stdout, unlike its
+ * receiver counterpart, which -- for openrsync's local-transfer design
+ * of forking and execvp()-ing a "rsync" server process -- has its
+ * stdout wired to the wire-protocol socket instead.
+ */
+static void
+send_progress_update(const struct sess *sess, const struct flist *f,
+    off_t sofar, int done)
+{
+	off_t	total = f->st.size;
+	float	frac = (total == 0) ? 100.0 : 100.0 * sofar / (float)total;
+
+	if (!sess->opts->progress || sess->opts->server)
+		return;
+
+	if (!done)
+		printf("\r%s  %12jd  %5.1f%%", f->path,
+		    (intmax_t)sofar, frac);
+	else
+		printf("\r%s  %12jd  %5.1f%% (done)\n", f->path,
+		    (intmax_t)total, 100.0);
+	fflush(stdout);
+}
 
 /*
  * A request from the receiver to download updated file data.
@@ -175,11 +205,14 @@ send_up_fsm(struct sess *sess, size_t *phase,
 		 * to find another.
 		 */
 
-		if (!sess->opts->dry_run)
+		if (!sess->opts->dry_run) {
 			LOG3("%s: flushed %jd KB total, %.2f%% uploaded",
 			    fl[up->cur->idx].path,
 			    (intmax_t)up->stat.total / 1024,
 			    100.0 * up->stat.dirty / up->stat.total);
+			send_progress_update(sess, &fl[up->cur->idx],
+			    up->stat.total, 1);
+		}
 		send_up_reset(up);
 		return 1;
 	case BLKSTAT_PHASE:
@@ -204,6 +237,8 @@ send_up_fsm(struct sess *sess, size_t *phase,
 		assert(up->stat.fd != -1);
 		blk_match(sess, up->cur->blks,
 			fl[up->cur->idx].path, &up->stat);
+		send_progress_update(sess, &fl[up->cur->idx],
+		    up->stat.total, 0);
 		return 1;
 	case BLKSTAT_NONE:
 		break;
