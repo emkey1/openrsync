@@ -410,6 +410,7 @@ void		 hash_file_buf(MD4_CTX *, const void *, size_t);
 void		 hash_file_final(MD4_CTX *, unsigned char *);
 
 void		 copy_file(int, const char *, const struct flist *);
+void		 link_file(int, const char *, const struct flist *);
 
 int		 mkpath(char *);
 

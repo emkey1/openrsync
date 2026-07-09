@@ -91,3 +91,24 @@ copy_file(int rootfd, const char *basedir, const struct flist *f)
 	close(fromfd);
 	close(tofd);
 }
+
+/*
+ * Like copy_file(), but for --link-dest: hardlink f->path from basedir
+ * into rootfd instead of copying its contents, so the destination shares
+ * the same inode (and disk space) as the basis file instead of
+ * duplicating it.
+ */
+void
+link_file(int rootfd, const char *basedir, const struct flist *f)
+{
+	int dfd;
+
+	dfd = openat(rootfd, basedir, O_RDONLY | O_DIRECTORY);
+	if (dfd == -1)
+		err(ERR_FILE_IO, "%s: openat", basedir);
+
+	if (linkat(dfd, f->path, rootfd, f->path, 0) == -1)
+		err(ERR_FILE_IO, "%s/%s: linkat", basedir, f->path);
+
+	close(dfd);
+}

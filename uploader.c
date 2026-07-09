@@ -785,7 +785,23 @@ pre_file(const struct upload *p, int *filefd, off_t *size,
 				}
 			}
 			LOG3("%s: skipping: up to date in %s", f->path, root);
-			/* TODO: depending on mode link or copy file */
+			if (sess->opts->alt_base_mode == BASE_MODE_LINK) {
+				/*
+				 * Deliberately not calling
+				 * rsync_set_metadata_at() here: the linked
+				 * file shares an inode with its basedir
+				 * counterpart, so chmod/chown/utimes on it
+				 * would silently mutate that file too.
+				 */
+				link_file(p->rootfd, root, f);
+			} else if (sess->opts->alt_base_mode == BASE_MODE_COPY) {
+				copy_file(p->rootfd, root, f);
+				if (!rsync_set_metadata_at(sess, 1, p->rootfd, f, f->path)) {
+					ERRX1("rsync_set_metadata");
+					close(dfd);
+					return -1;
+				}
+			}
 			close(dfd);
 			return 0;
 		} else if (x == 1 && match == -1) {

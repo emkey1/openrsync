@@ -304,10 +304,8 @@ const struct option	 lopts[] = {
     { "address",	required_argument, NULL,		OP_ADDRESS },
     { "archive",	no_argument,	NULL,			'a' },
     { "compare-dest",	required_argument, NULL,		OP_COMP_DEST },
-#if 0
     { "copy-dest",	required_argument, NULL,		OP_COPY_DEST },
     { "link-dest",	required_argument, NULL,		OP_LINK_DEST },
-#endif
     { "compress",	no_argument,	NULL,			'z' },
     { "contimeout",	required_argument, NULL,		OP_CONTIMEOUT },
     { "del",		no_argument,	&opts.del,		1 },
@@ -506,7 +504,6 @@ main(int argc, char *argv[])
 				    alt_base_mode(opts.alt_base_mode));
 			}
 			opts.alt_base_mode = BASE_MODE_COMPARE;
-#if 0
 			goto basedir;
 		case OP_COPY_DEST:
 			if (opts.alt_base_mode !=0 &&
@@ -527,7 +524,6 @@ main(int argc, char *argv[])
 			opts.alt_base_mode = BASE_MODE_LINK;
 
 basedir:
-#endif
 			if (basedir_cnt >= MAX_BASEDIR)
 				errx(1, "too many --%s directories specified",
 				    lopts[lidx].name);
@@ -687,7 +683,8 @@ basedir:
 usage:
 	fprintf(stderr, "usage: %s"
 	    " [-aDgIJlnOoprtVvx] [-e program] [--address=sourceaddr]\n"
-	    "\t[--contimeout=seconds] [--compare-dest=dir] [--del] [--exclude]\n"
+	    "\t[--contimeout=seconds] [--compare-dest=dir] [--copy-dest=dir]\n"
+	    "\t[--link-dest=dir] [--del] [--exclude]\n"
 	    "\t[--exclude-from=file] [--include] [--include-from=file]\n"
 	    "\t[--no-motd] [--numeric-ids] [--port=portnumber]\n"
 	    "\t[--rsync-path=program] [--size-only] [--timeout=seconds]\n"
