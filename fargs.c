@@ -125,6 +125,33 @@ fargs_cmdline(struct sess *sess, const struct fargs *f, size_t *skip)
 		addargs(&args, "-I");
 	if (sess->opts->update)
 		addargs(&args, "-u");
+	if (sess->opts->checksum)
+		/*
+		 * Forwarding this is required for --checksum to have any
+		 * effect at all when *we* are the sender (the skip
+		 * decision runs in check_file() on the receiving side,
+		 * which for a push is the peer, not us) -- confirmed
+		 * working end-to-end against another openrsync/smallclue
+		 * instance (same-size/same-mtime/differing-content is
+		 * correctly caught and re-synced, fast, no hang).
+		 *
+		 * Caveat found while verifying this against a real,
+		 * unmodified rsync daemon (rsync 3.2.7): unlike -z (which
+		 * fails loudly and immediately against a foreign peer),
+		 * forwarding -c to one can cause a silent, indefinite
+		 * hang in the exact same-size/same-mtime/differing-content
+		 * case -- the foreign daemon's own (much newer protocol)
+		 * --checksum implementation apparently expects a
+		 * whole-file-checksum wire exchange this fork doesn't
+		 * produce, and both sides end up blocked in poll()
+		 * waiting on each other. Same scope boundary as -z:
+		 * openrsync/smallclue is assumed to be on both ends of any
+		 * transfer it initiates. Pass --timeout=N explicitly if
+		 * combining -c with a peer that might not be
+		 * openrsync/smallclue, to turn that hang into a bounded,
+		 * clean failure instead.
+		 */
+		addargs(&args, "-c");
 	if (verbose > 3)
 		addargs(&args, "-v");
 	if (verbose > 2)

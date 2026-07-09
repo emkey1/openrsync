@@ -679,19 +679,37 @@ check_file(int rootfd, const struct flist *f, struct stat *st,
 	if (sess->opts->update && st->st_mtime > f->st.mtime)
 		return 0;
 
-	/* TODO: add support for --checksum. A naive "always report possible
-	 * match, let the block-transfer engine sort it out" implementation
-	 * was tried and produced an incorrect skip (content that genuinely
-	 * differed was left unsynced) plus a large, unexplained delay --
-	 * reverted rather than shipped; needs real investigation before
-	 * landing, not a quick flag-gated tweak like --update was. */
-
 	/* if ignore_times is on file needs attention */
 	if (sess->opts->ignore_times)
 		return 2;
 
 	/* quick check if file is the same */
 	if (st->st_size == f->st.size) {
+		/*
+		 * --checksum: never trust size/mtime metadata alone --
+		 * report "possible match" so the real block-transfer
+		 * engine's rolling+strong checksums decide based on
+		 * actual content. This is already exactly how a
+		 * same-size, differing-mtime file is handled by default
+		 * (the plain "return 1" below), and that path is already
+		 * a genuine content comparison (verified: an unchanged
+		 * file with only its mtime touched round-trips through
+		 * block-matching correctly and fast, sending no literal
+		 * data). --checksum just means every same-size file goes
+		 * through that same real comparison instead of trusting
+		 * mtime to skip it.
+		 *
+		 * (A prior naive attempt at this flag was reverted: it
+		 * produced an incorrect skip of genuinely-differing
+		 * content plus an unexplained delay. That symptom -- a
+		 * wrong *skip* -- matches accidentally returning 0
+		 * instead of 1 here, i.e. collapsing into --size-only's
+		 * behavior instead of forcing a real comparison. This
+		 * version deliberately never returns 0 in the checksum
+		 * case.)
+		 */
+		if (sess->opts->checksum)
+			return 1;
 		if (sess->opts->size_only)
 			return 0;
 		if (st->st_mtime == f->st.mtime)

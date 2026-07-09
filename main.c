@@ -342,6 +342,7 @@ static struct opts	 opts;
 const struct option	 lopts[] = {
     { "address",	required_argument, NULL,		OP_ADDRESS },
     { "archive",	no_argument,	NULL,			'a' },
+    { "checksum",	no_argument,	NULL,			'c' },
     { "compare-dest",	required_argument, NULL,		OP_COMP_DEST },
     { "copy-dest",	required_argument, NULL,		OP_COPY_DEST },
     { "link-dest",	required_argument, NULL,		OP_LINK_DEST },
@@ -420,7 +421,7 @@ main(int argc, char *argv[])
 
 	opts.max_size = opts.min_size = -1;
 
-	while ((c = getopt_long(argc, argv, "aDe:ghIJlnOoprtuVvxz",
+	while ((c = getopt_long(argc, argv, "aDe:cghIJlnOoprtuVvxz",
 	    lopts, &lidx)) != -1) {
 		switch (c) {
 		case 'D':
@@ -436,6 +437,9 @@ main(int argc, char *argv[])
 			opts.preserve_uids = 1;
 			opts.devices = 1;
 			opts.specials = 1;
+			break;
+		case 'c':
+			opts.checksum = 1;
 			break;
 		case 'e':
 			opts.ssh_prog = optarg;
@@ -721,7 +725,7 @@ basedir:
 	exit(rc);
 usage:
 	fprintf(stderr, "usage: %s"
-	    " [-aDgIJlnOoprtVvx] [-e program] [--address=sourceaddr]\n"
+	    " [-acDgIJlnOoprtVvx] [-e program] [--address=sourceaddr]\n"
 	    "\t[--contimeout=seconds] [--compare-dest=dir] [--copy-dest=dir]\n"
 	    "\t[--link-dest=dir] [--del] [--exclude]\n"
 	    "\t[--exclude-from=file] [--include] [--include-from=file]\n"

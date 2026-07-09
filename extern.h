@@ -149,6 +149,7 @@ struct	opts {
 	int		 preserve_gids;		/* -g */
 	int		 preserve_uids;		/* -o */
 	int		 update;		/* -u / --update */
+	int		 checksum;		/* -c / --checksum */
 	int		 del;			/* --delete */
 	int		 devices;		/* --devices */
 	int		 specials;		/* --specials */
