@@ -69,6 +69,8 @@
 # define HAVE_SANDBOX_INIT 1
 # undef HAVE_SYS_ENDIAN_H
 # define HAVE_SYS_ENDIAN_H 1
+# undef HAVE_SYS_SYSMACROS_H
+# define HAVE_SYS_SYSMACROS_H 0
 #else
 # undef HAVE_ENDIAN_H
 # define HAVE_ENDIAN_H 1
@@ -78,6 +80,39 @@
 # define HAVE_SANDBOX_INIT 0
 # undef HAVE_SYS_ENDIAN_H
 # define HAVE_SYS_ENDIAN_H 0
+/* Linux (glibc and musl) both ship sys/sysmacros.h for major()/minor();
+ * the top-of-file default of 0 was only ever correct for __APPLE__, where
+ * sys/types.h alone declares them. Without this, flist.c's device-node
+ * printf (major(ff->st.rdev), minor(ff->st.rdev)) fails on musl targets
+ * (Alpine, aarch64-linux-musl) with implicit-declaration errors. */
+# undef HAVE_SYS_SYSMACROS_H
+# define HAVE_SYS_SYSMACROS_H 1
+/* strtonum() is a BSD-ism; Darwin's libc has it (hence HAVE_STRTONUM=1 at
+ * the top of this file being correct there), and neither musl nor glibc
+ * implement it -- but openrsync's own compats.c ALSO has a fallback
+ * (#if !HAVE_STRTONUM, compats.c:5758), same as arc4random below. Setting
+ * HAVE_STRTONUM=0 activates THAT definition, which then collides at link
+ * time with OpenSSH's openbsd-compat/strtonum.c (same signature, also
+ * compiled into this binary) -- "multiple definition of strtonum". So:
+ * leave HAVE_STRTONUM=1 (true -- we do have a working symbol, just from a
+ * different TU than the system libc), and only add the prototype main.c is
+ * missing since openrsync's own header never declares it when HAVE_STRTONUM
+ * is set (unlike HAVE_SYS_SYSMACROS_H, which only affects a header choice,
+ * not a definition). */
+long long strtonum(const char *, long long, long long, const char **);
+/* Same story as strtonum() above: musl (this Alpine's libc) doesn't declare
+ * arc4random_buf() under any of the feature-test macros this build sets
+ * (verified directly against musl-dev, not assumed), even though
+ * HAVE_ARC4RANDOM=1 at the top of this file is correct for __APPLE__.
+ * OpenSSH's openbsd-compat/arc4random.c (already compiled into this binary)
+ * defines the real symbol; this just supplies the missing prototype.
+ * #include <stddef.h> for size_t -- this header is force-included via
+ * -include ahead of every other header in the translation unit, so nothing
+ * has defined size_t yet at this point. */
+#include <stddef.h>
+#include <stdint.h>
+void arc4random_buf(void *, size_t);
+uint32_t arc4random(void);
 #endif
 
 #ifdef __cplusplus
