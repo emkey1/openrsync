@@ -130,26 +130,25 @@ fargs_cmdline(struct sess *sess, const struct fargs *f, size_t *skip)
 		 * Forwarding this is required for --checksum to have any
 		 * effect at all when *we* are the sender (the skip
 		 * decision runs in check_file() on the receiving side,
-		 * which for a push is the peer, not us) -- confirmed
-		 * working end-to-end against another openrsync/smallclue
-		 * instance (same-size/same-mtime/differing-content is
-		 * correctly caught and re-synced, fast, no hang).
+		 * which for a push is the peer, not us).
 		 *
-		 * Caveat found while verifying this against a real,
-		 * unmodified rsync daemon (rsync 3.2.7): unlike -z (which
-		 * fails loudly and immediately against a foreign peer),
-		 * forwarding -c to one can cause a silent, indefinite
-		 * hang in the exact same-size/same-mtime/differing-content
-		 * case -- the foreign daemon's own (much newer protocol)
-		 * --checksum implementation apparently expects a
-		 * whole-file-checksum wire exchange this fork doesn't
-		 * produce, and both sides end up blocked in poll()
-		 * waiting on each other. Same scope boundary as -z:
-		 * openrsync/smallclue is assumed to be on both ends of any
-		 * transfer it initiates. Pass --timeout=N explicitly if
-		 * combining -c with a peer that might not be
-		 * openrsync/smallclue, to turn that hang into a bounded,
-		 * clean failure instead.
+		 * CORRECTION: an earlier version of this comment claimed the
+		 * same-size/same-mtime/differing-content case was "confirmed
+		 * working end-to-end against another openrsync/smallclue
+		 * instance ... fast, no hang". That was wrong -- re-tested and
+		 * that exact case currently hangs (single file) or fails
+		 * immediately with "unexpected end of file" (directory sync via
+		 * -r) even smallclue-to-smallclue over a local socketpair, i.e.
+		 * this isn't only a foreign-peer problem. See TODO.md;
+		 * root-causing the checksum wire exchange itself is
+		 * unscoped/unfixed here.
+		 *
+		 * What IS fixed (main.c, see PSCAL_CHECKSUM_DEFAULT_TIMEOUT): -c
+		 * without an explicit --timeout now gets a bounded default poll
+		 * timeout, so any hang in this path -- against a foreign peer or
+		 * another openrsync/smallclue instance -- fails cleanly instead
+		 * of blocking forever. Pass --timeout=N yourself to override
+		 * that default, or --timeout=0 to force no timeout at all.
 		 */
 		addargs(&args, "-c");
 	if (verbose > 3)

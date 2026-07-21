@@ -407,6 +407,7 @@ main(int argc, char *argv[])
 	pid_t		 child;
 	long long	 tmpint;
 	int		 fds[2], sd = -1, rc, c, st, i, lidx;
+	int		 timeout_explicit = 0;
 	size_t		 basedir_cnt = 0;
 	struct sess	 sess;
 	struct fargs	*fargs;
@@ -523,6 +524,7 @@ main(int argc, char *argv[])
 			if (errstr != NULL)
 				errx(ERR_SYNTAX, "timeout is %s: %s",
 				    errstr, optarg);
+			timeout_explicit = 1;
 			break;
 		case OP_EXCLUDE:
 			if (parse_rule(optarg, RULE_EXCLUDE) == -1)
@@ -605,6 +607,24 @@ basedir:
 		poll_contimeout = -1;
 	else
 		poll_contimeout *= 1000;
+
+	/*
+	 * -c/--checksum against a peer that isn't openrsync/smallclue can
+	 * hang indefinitely instead of failing: the foreign peer's own
+	 * --checksum implementation may expect a whole-file-checksum wire
+	 * exchange this fork doesn't produce, leaving both sides blocked in
+	 * poll() forever (see the long comment on -c in fargs.c). -z avoids
+	 * this because its incompatible wire format makes a foreign peer
+	 * fail fast on its own; -c's framing is otherwise compatible enough
+	 * that nothing naturally breaks the deadlock. An explicit
+	 * --timeout=N (including --timeout=0 to force "never") always wins;
+	 * this only fills in a bounded default when the user didn't ask for
+	 * one at all, turning a silent indefinite hang into a diagnosable
+	 * failure after PSCAL_CHECKSUM_DEFAULT_TIMEOUT seconds.
+	 */
+#define PSCAL_CHECKSUM_DEFAULT_TIMEOUT 60
+	if (opts.checksum && !timeout_explicit && poll_timeout == 0)
+		poll_timeout = PSCAL_CHECKSUM_DEFAULT_TIMEOUT;
 
 	/* by default and for --timeout=0 disable poll_timeout */
 	if (poll_timeout == 0)
