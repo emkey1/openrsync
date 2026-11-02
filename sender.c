@@ -53,10 +53,10 @@ send_progress_update(const struct sess *sess, const struct flist *f,
 		return;
 
 	if (!done)
-		printf("\r%s  %12jd  %5.1f%%", f->path,
+		printf("\r%s  %12jd  %5.1f%%", f->wpath,
 		    (intmax_t)sofar, frac);
 	else
-		printf("\r%s  %12jd  %5.1f%% (done)\n", f->path,
+		printf("\r%s  %12jd  %5.1f%% (done)\n", f->wpath,
 		    (intmax_t)total, 100.0);
 	fflush(stdout);
 }

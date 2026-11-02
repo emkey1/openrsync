@@ -797,6 +797,68 @@ out:
 }
 
 /*
+ * fts(3) is libc's, so in the iOS app it sees none of the app's virtual paths,
+ * and it would chdir in the one process-wide cwd every command shares. There it
+ * walks a host path and stays put.
+ */
+#ifdef PSCAL_TARGET_IOS
+#define FLIST_FTS_OPTIONS	(FTS_PHYSICAL | FTS_NOCHDIR)
+#else
+#define FLIST_FTS_OPTIONS	FTS_PHYSICAL
+#endif
+
+static char *
+flist_fts_root(const char *root)
+{
+#ifdef PSCAL_TARGET_IOS
+	char		*host, *contents;
+
+	if ((host = pscal_ios_host_path(root)) == NULL)
+		return NULL;
+
+	/*
+	 * The host path is normalised, but a final "/" is what asks for the
+	 * directory's contents rather than the directory.
+	 */
+	if (root[strlen(root) - 1] == '/' && host[strlen(host) - 1] != '/') {
+		if (asprintf(&contents, "%s/", host) == -1)
+			contents = NULL;
+		free(host);
+		return contents;
+	}
+	return host;
+#else
+	return strdup(root);
+#endif
+}
+
+/*
+ * If we end with a slash, it means that we're not supposed to
+ * copy the directory part itself---only the contents.
+ * So set "stripdir" to be what we take out.
+ * If we're not stripping anything, then see if we need to strip
+ * out the leading material in the path up to and including the
+ * last directory component.
+ */
+static size_t
+flist_stripdir(const char *root)
+{
+	const char	*cp;
+	size_t		 stripdir;
+
+	stripdir = strlen(root);
+	assert(stripdir > 0);
+	if (root[stripdir - 1] != '/')
+		stripdir = 0;
+
+	if (stripdir == 0)
+		if ((cp = strrchr(root, '/')) != NULL)
+			stripdir = cp - root + 1;
+
+	return stripdir;
+}
+
+/*
  * Generate a flist possibly-recursively given a file root, which may
  * also be a regular file or symlink.
  * On success, augments the generated list in "flp" of length "sz".
@@ -806,16 +868,16 @@ static int
 flist_gen_dirent(struct sess *sess, char *root, struct flist **fl, size_t *sz,
     size_t *max)
 {
-	char		*cargv[2], *cp;
+	char		*cargv[2], *fts_root;
+	const char	*rel;
 	int		 rc = 0, flag;
 	FTS		*fts;
 	FTSENT		*ent;
 	struct flist	*f;
-	size_t		 i, flsz = 0, nxdev = 0, stripdir;
+	size_t		 i, flsz = 0, nxdev = 0, stripdir, fts_stripdir;
 	dev_t		*newxdev, *xdev = NULL;
 	struct stat	 st;
 
-	cargv[0] = root;
 	cargv[1] = NULL;
 
 	/*
@@ -871,26 +933,16 @@ flist_gen_dirent(struct sess *sess, char *root, struct flist **fl, size_t *sz,
 		return 1;
 	}
 
-	/*
-	 * If we end with a slash, it means that we're not supposed to
-	 * copy the directory part itself---only the contents.
-	 * So set "stripdir" to be what we take out.
-	 */
+	if ((fts_root = flist_fts_root(root)) == NULL) {
+		ERR("%s: flist_fts_root", root);
+		return 0;
+	}
+	cargv[0] = fts_root;
 
-	stripdir = strlen(root);
-	assert(stripdir > 0);
-	if (root[stripdir - 1] != '/')
-		stripdir = 0;
+	/* Paths in the list keep the root as given; fts walks its own. */
 
-	/*
-	 * If we're not stripping anything, then see if we need to strip
-	 * out the leading material in the path up to and including the
-	 * last directory component.
-	 */
-
-	if (stripdir == 0)
-		if ((cp = strrchr(root, '/')) != NULL)
-			stripdir = cp - root + 1;
+	stripdir = flist_stripdir(root);
+	fts_stripdir = flist_stripdir(fts_root);
 
 	/*
 	 * If we're recursive, then we need to take down all of the
@@ -899,8 +951,9 @@ flist_gen_dirent(struct sess *sess, char *root, struct flist **fl, size_t *sz,
 	 * We'll make sense of it in flist_send.
 	 */
 
-	if ((fts = fts_open(cargv, FTS_PHYSICAL, NULL)) == NULL) {
+	if ((fts = fts_open(cargv, FLIST_FTS_OPTIONS, NULL)) == NULL) {
 		ERR("fts_open");
+		free(fts_root);
 		return 0;
 	}
 
@@ -914,9 +967,10 @@ flist_gen_dirent(struct sess *sess, char *root, struct flist **fl, size_t *sz,
 		/* We don't allow symlinks without -l. */
 
 		assert(ent->fts_statp != NULL);
+		rel = ent->fts_path + fts_stripdir;
 		if (S_ISLNK(ent->fts_statp->st_mode) &&
 		    !sess->opts->preserve_links) {
-			WARNX("%s: skipping symlink", ent->fts_path);
+			WARNX("%s: skipping symlink", rel);
 			continue;
 		}
 
@@ -958,10 +1012,8 @@ flist_gen_dirent(struct sess *sess, char *root, struct flist **fl, size_t *sz,
 		}
 
 		/* filter files */
-		if (rules_match(ent->fts_path + stripdir,
-		    (ent->fts_info == FTS_D)) == -1) {
-			WARNX("%s: skipping excluded file",
-			    ent->fts_path + stripdir);
+		if (rules_match(rel, (ent->fts_info == FTS_D)) == -1) {
+			WARNX("%s: skipping excluded file", rel);
 			fts_set(fts, ent, FTS_SKIP);
 			continue;
 		}
@@ -977,17 +1029,11 @@ flist_gen_dirent(struct sess *sess, char *root, struct flist **fl, size_t *sz,
 
 		/* Our path defaults to "." for the root. */
 
-		if (ent->fts_path[stripdir] == '\0') {
-			if (asprintf(&f->path, "%s.", ent->fts_path) == -1) {
-				ERR("asprintf");
-				f->path = NULL;
-				goto out;
-			}
-		} else {
-			if ((f->path = strdup(ent->fts_path)) == NULL) {
-				ERR("strdup");
-				goto out;
-			}
+		if (asprintf(&f->path, "%.*s%s", (int)stripdir, root,
+		    *rel == '\0' ? "." : rel) == -1) {
+			ERR("asprintf");
+			f->path = NULL;
+			goto out;
 		}
 
 		f->wpath = f->path + stripdir;
@@ -1016,6 +1062,7 @@ flist_gen_dirent(struct sess *sess, char *root, struct flist **fl, size_t *sz,
 out:
 	fts_close(fts);
 	free(xdev);
+	free(fts_root);
 	return rc;
 }
 
@@ -1342,7 +1389,7 @@ int
 flist_gen_dels(struct sess *sess, const char *root, struct flist **fl,
     size_t *sz,	const struct flist *wfl, size_t wflsz)
 {
-	char		**cargv = NULL;
+	char		**cargv = NULL, *fts_root = NULL;
 	int		  rc = 0, c, flag;
 	FTS		 *fts = NULL;
 	FTSENT		 *ent;
@@ -1378,6 +1425,12 @@ flist_gen_dels(struct sess *sess, const char *root, struct flist **fl,
 		ERR("calloc");
 		return 0;
 	}
+
+	if ((fts_root = flist_fts_root(root)) == NULL) {
+		ERR("%s: flist_fts_root", root);
+		goto out;
+	}
+	root = fts_root;
 
 	/*
 	 * If we're given just a "." as the first entry, that means
@@ -1452,7 +1505,7 @@ flist_gen_dels(struct sess *sess, const char *root, struct flist **fl,
 	 * If the directories don't exist, it's ok.
 	 */
 
-	if ((fts = fts_open(cargv, FTS_PHYSICAL, NULL)) == NULL) {
+	if ((fts = fts_open(cargv, FLIST_FTS_OPTIONS, NULL)) == NULL) {
 		ERR("fts_open");
 		goto out;
 	}
@@ -1540,6 +1593,7 @@ out:
 	for (i = 0; i < cargvs; i++)
 		free(cargv[i]);
 	free(cargv);
+	free(fts_root);
 	hdestroy();
 	return rc;
 }

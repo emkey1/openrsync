@@ -27,6 +27,7 @@
 # include <fcntl.h>
 #endif
 #include <getopt.h>
+#include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -38,9 +39,15 @@
 
 #include "extern.h"
 
-int verbose;
-int poll_contimeout;
-int poll_timeout;
+/*
+ * The iOS app has no real fork: a local transfer's server is a thread of this
+ * process, parsing its own arguments alongside the client. And no process exit
+ * ends a run there, so the next run on a thread finds what the last one left.
+ * So what the options set is per thread, and main() starts by clearing it.
+ */
+_Thread_local int verbose;
+_Thread_local int poll_contimeout;
+_Thread_local int poll_timeout;
 
 /*
  * A remote host is has a colon before the first path separator.
@@ -322,7 +329,9 @@ fargs_parse(size_t argc, char *argv[], struct opts *opts)
 	return f;
 }
 
-static struct opts	 opts;
+static _Thread_local struct opts	 opts;
+/* lopts cannot point at thread-local opts: it points here and main() repoints a copy. */
+static struct opts	 opts_layout;
 
 #define OP_ADDRESS	1000
 #define OP_PORT		1001
@@ -338,6 +347,8 @@ static struct opts	 opts;
 #define OP_MAX_SIZE	1012
 #define OP_MIN_SIZE	1013
 #define OP_CONTIMEOUT	1014
+#define OP_VERBOSE	1015
+#define OP_NO_VERBOSE	1016
 
 const struct option	 lopts[] = {
     { "address",	required_argument, NULL,		OP_ADDRESS },
@@ -348,58 +359,98 @@ const struct option	 lopts[] = {
     { "link-dest",	required_argument, NULL,		OP_LINK_DEST },
     { "compress",	no_argument,	NULL,			'z' },
     { "contimeout",	required_argument, NULL,		OP_CONTIMEOUT },
-    { "del",		no_argument,	&opts.del,		1 },
-    { "delete",		no_argument,	&opts.del,		1 },
-    { "devices",	no_argument,	&opts.devices,		1 },
-    { "no-devices",	no_argument,	&opts.devices,		0 },
-    { "dry-run",	no_argument,	&opts.dry_run,		1 },
+    { "del",		no_argument,	&opts_layout.del,		1 },
+    { "delete",		no_argument,	&opts_layout.del,		1 },
+    { "devices",	no_argument,	&opts_layout.devices,		1 },
+    { "no-devices",	no_argument,	&opts_layout.devices,		0 },
+    { "dry-run",	no_argument,	&opts_layout.dry_run,		1 },
     { "exclude",	required_argument, NULL,		OP_EXCLUDE },
     { "exclude-from",	required_argument, NULL,		OP_EXCLUDE_FROM },
-    { "group",		no_argument,	&opts.preserve_gids,	1 },
-    { "no-group",	no_argument,	&opts.preserve_gids,	0 },
+    { "group",		no_argument,	&opts_layout.preserve_gids,	1 },
+    { "no-group",	no_argument,	&opts_layout.preserve_gids,	0 },
     { "help",		no_argument,	NULL,			'h' },
     { "ignore-times",	no_argument,	NULL,			'I' },
     { "include",	required_argument, NULL,		OP_INCLUDE },
     { "include-from",	required_argument, NULL,		OP_INCLUDE_FROM },
-    { "links",		no_argument,	&opts.preserve_links,	1 },
+    { "links",		no_argument,	&opts_layout.preserve_links,	1 },
     { "max-size",	required_argument, NULL,		OP_MAX_SIZE },
     { "min-size",	required_argument, NULL,		OP_MIN_SIZE },
-    { "no-links",	no_argument,	&opts.preserve_links,	0 },
-    { "no-motd",	no_argument,	&opts.no_motd,		1 },
-    { "numeric-ids",	no_argument,	&opts.numeric_ids,	1 },
-    { "omit-dir-times",	no_argument,	&opts.ignore_dir_times,	1 },
-    { "no-O",		no_argument,	&opts.ignore_dir_times,	0 },
-    { "no-omit-dir-times",	no_argument,	&opts.ignore_dir_times, 0 },
-    { "omit-link-times",	no_argument,	&opts.ignore_link_times, 1 },
-    { "no-J",		no_argument,	&opts.ignore_link_times, 0 },
-    { "no-omit-link-times",	no_argument,	&opts.ignore_link_times, 0 },
-    { "owner",		no_argument,	&opts.preserve_uids,	1 },
-    { "no-owner",	no_argument,	&opts.preserve_uids,	0 },
-    { "perms",		no_argument,	&opts.preserve_perms,	1 },
-    { "no-perms",	no_argument,	&opts.preserve_perms,	0 },
+    { "no-links",	no_argument,	&opts_layout.preserve_links,	0 },
+    { "no-motd",	no_argument,	&opts_layout.no_motd,		1 },
+    { "numeric-ids",	no_argument,	&opts_layout.numeric_ids,	1 },
+    { "omit-dir-times",	no_argument,	&opts_layout.ignore_dir_times,	1 },
+    { "no-O",		no_argument,	&opts_layout.ignore_dir_times,	0 },
+    { "no-omit-dir-times",	no_argument,	&opts_layout.ignore_dir_times, 0 },
+    { "omit-link-times",	no_argument,	&opts_layout.ignore_link_times, 1 },
+    { "no-J",		no_argument,	&opts_layout.ignore_link_times, 0 },
+    { "no-omit-link-times",	no_argument,	&opts_layout.ignore_link_times, 0 },
+    { "owner",		no_argument,	&opts_layout.preserve_uids,	1 },
+    { "no-owner",	no_argument,	&opts_layout.preserve_uids,	0 },
+    { "perms",		no_argument,	&opts_layout.preserve_perms,	1 },
+    { "no-perms",	no_argument,	&opts_layout.preserve_perms,	0 },
     { "port",		required_argument, NULL,		OP_PORT },
-    { "progress",	no_argument,	&opts.progress,		1 },
-    { "recursive",	no_argument,	&opts.recursive,	1 },
-    { "no-recursive",	no_argument,	&opts.recursive,	0 },
+    { "progress",	no_argument,	&opts_layout.progress,		1 },
+    { "recursive",	no_argument,	&opts_layout.recursive,	1 },
+    { "no-recursive",	no_argument,	&opts_layout.recursive,	0 },
     { "rsh",		required_argument, NULL,		'e' },
     { "rsync-path",	required_argument, NULL,		OP_RSYNCPATH },
-    { "sender",		no_argument,	&opts.sender,		1 },
-    { "server",		no_argument,	&opts.server,		1 },
-    { "size-only",	no_argument,	&opts.size_only,	1 },
-    { "specials",	no_argument,	&opts.specials,		1 },
+    { "sender",		no_argument,	&opts_layout.sender,		1 },
+    { "server",		no_argument,	&opts_layout.server,		1 },
+    { "size-only",	no_argument,	&opts_layout.size_only,	1 },
+    { "specials",	no_argument,	&opts_layout.specials,		1 },
 #if 0
     { "sync-file",	required_argument, NULL,		6 },
 #endif
-    { "no-specials",	no_argument,	&opts.specials,		0 },
+    { "no-specials",	no_argument,	&opts_layout.specials,		0 },
     { "timeout",	required_argument, NULL,		OP_TIMEOUT },
-    { "times",		no_argument,	&opts.preserve_times,	1 },
-    { "no-times",	no_argument,	&opts.preserve_times,	0 },
-    { "update",		no_argument,	&opts.update,		1 },
-    { "verbose",	no_argument,	&verbose,		1 },
-    { "no-verbose",	no_argument,	&verbose,		0 },
+    { "times",		no_argument,	&opts_layout.preserve_times,	1 },
+    { "no-times",	no_argument,	&opts_layout.preserve_times,	0 },
+    { "update",		no_argument,	&opts_layout.update,		1 },
+    { "verbose",	no_argument,	NULL,			OP_VERBOSE },
+    { "no-verbose",	no_argument,	NULL,			OP_NO_VERBOSE },
     { "version",	no_argument,	NULL,			'V' },
     { NULL,		0,		NULL,			0 }
 };
+
+#ifdef PSCAL_TARGET_IOS
+/*
+ * In the app a relative path resolves against the command's own vproc only
+ * through some calls, and the server thread is a different one again.  Make the
+ * local paths absolute while running as the command itself: it is still the
+ * app's virtual view, so messages read as the user would expect.
+ */
+static char *
+fargs_absolute_path(char *path)
+{
+	char		 cwd[PATH_MAX], *absolute;
+	const char	*base;
+
+	if (getcwd(cwd, sizeof(cwd)) == NULL)
+		err(ERR_FILE_IO, "getcwd");
+
+	/* With "." or ".." the name is no use: they mean the contents. */
+	base = strrchr(path, '/');
+	base = base != NULL ? base + 1 : path;
+	if (asprintf(&absolute, "%s%s%s%s", path[0] == '/' ? "" : cwd,
+	    path[0] == '/' ? "" : "/", path,
+	    strcmp(base, ".") == 0 || strcmp(base, "..") == 0 ? "/" : "") == -1)
+		err(ERR_NOMEM, NULL);
+	free(path);
+	return absolute;
+}
+
+static void
+fargs_absolute_paths(struct fargs *f)
+{
+	size_t	 i;
+
+	if (f->host == NULL || f->mode == FARGS_SENDER)
+		for (i = 0; i < f->sourcesz; i++)
+			f->sources[i] = fargs_absolute_path(f->sources[i]);
+	if (f->host == NULL || f->mode == FARGS_RECEIVER)
+		f->sink = fargs_absolute_path(f->sink);
+}
+#endif
 
 int
 main(int argc, char *argv[])
@@ -409,6 +460,7 @@ main(int argc, char *argv[])
 	int		 fds[2], sd = -1, rc, c, st, i, lidx;
 	int		 timeout_explicit = 0;
 	size_t		 basedir_cnt = 0;
+	struct option	 run_lopts[sizeof(lopts) / sizeof(lopts[0])];
 	struct sess	 sess;
 	struct fargs	*fargs;
 	char		**args;
@@ -420,10 +472,21 @@ main(int argc, char *argv[])
 	    NULL) == -1)
 		err(ERR_IPC, "pledge");
 
+	memset(&opts, 0, sizeof(opts));
+	verbose = poll_contimeout = poll_timeout = 0;
+	rules_reset();
+
 	opts.max_size = opts.min_size = -1;
 
+	for (i = 0; i < (int)(sizeof(lopts) / sizeof(lopts[0])); i++) {
+		run_lopts[i] = lopts[i];
+		if (lopts[i].flag != NULL)
+			run_lopts[i].flag = (int *)((char *)&opts +
+			    ((char *)lopts[i].flag - (char *)&opts_layout));
+	}
+
 	while ((c = getopt_long(argc, argv, "aDe:cghIJlnOoprtuVvxz",
-	    lopts, &lidx)) != -1) {
+	    run_lopts, &lidx)) != -1) {
 		switch (c) {
 		case 'D':
 			opts.devices = 1;
@@ -498,6 +561,12 @@ main(int argc, char *argv[])
 			break;
 		case 0:
 			/* Non-NULL flag values (e.g., --sender). */
+			break;
+		case OP_VERBOSE:
+			verbose = 1;
+			break;
+		case OP_NO_VERBOSE:
+			verbose = 0;
 			break;
 #if 0
 		case 6:
@@ -638,8 +707,18 @@ basedir:
 	 * host by the parent.
 	 */
 
-	if (opts.server)
-		exit(rsync_server(&opts, (size_t)argc, argv));
+	if (opts.server) {
+#ifdef PSCAL_TARGET_IOS
+		/*
+		 * In a background job a read of fd 0 stops the job, as a read of
+		 * the terminal would.  This one is the socket to the client.
+		 */
+		vprocSetStopUnsupported(vprocPid(vprocCurrent()), true);
+#endif
+		rc = rsync_server(&opts, (size_t)argc, argv);
+		rules_reset();
+		exit(rc);
+	}
 
 	/*
 	 * Now we know that we're the client on the local machine
@@ -653,6 +732,9 @@ basedir:
 
 	fargs = fargs_parse(argc, argv, &opts);
 	assert(fargs != NULL);
+#ifdef PSCAL_TARGET_IOS
+	fargs_absolute_paths(fargs);
+#endif
 
 	/*
 	 * If we're contacting an rsync:// daemon, then we don't need to
@@ -689,28 +771,37 @@ basedir:
 		err(ERR_IPC, "fcntl");
 #endif
 
+	/*
+	 * Before the fork: err() from a simulated child (iOS) would unwind the
+	 * thread that is also the parent.  Past this point the child only uses
+	 * _exit, which ends just the child there.
+	 */
+	memset(&sess, 0, sizeof(struct sess));
+	sess.opts = &opts;
+
+	args = fargs_cmdline(&sess, fargs, NULL);
+
+	for (i = 0; args[i] != NULL; i++)
+		LOG2("exec[%d] = %s", i, args[i]);
+
 	switch ((child = fork())) {
 	case -1:
 		err(ERR_IPC, "fork");
 	case 0:
 		close(fds[0]);
-		if (pledge("stdio exec", NULL) == -1)
-			err(ERR_IPC, "pledge");
-
-		memset(&sess, 0, sizeof(struct sess));
-		sess.opts = &opts;
-
-		args = fargs_cmdline(&sess, fargs, NULL);
-
-		for (i = 0; args[i] != NULL; i++)
-			LOG2("exec[%d] = %s", i, args[i]);
+		if (pledge("stdio exec", NULL) == -1) {
+			warn("pledge");
+			_exit(ERR_IPC);
+		}
 
 		/* Make sure the child's stdin is from the sender. */
-		if (dup2(fds[1], STDIN_FILENO) == -1)
-			err(ERR_IPC, "dup2");
-		if (dup2(fds[1], STDOUT_FILENO) == -1)
-			err(ERR_IPC, "dup2");
+		if (dup2(fds[1], STDIN_FILENO) == -1 ||
+		    dup2(fds[1], STDOUT_FILENO) == -1) {
+			warn("dup2");
+			_exit(ERR_IPC);
+		}
 		execvp(args[0], args);
+		warn("%s", args[0]);
 		_exit(ERR_IPC);
 		/* NOTREACHED */
 	default:

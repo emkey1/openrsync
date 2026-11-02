@@ -76,12 +76,12 @@
  * Use this for --timeout.
  * All poll events will use it and catch time-outs.
  */
-extern int poll_timeout;
+extern _Thread_local int poll_timeout;
 
 /*
  * Use this for --contimeout.
  */
-extern int poll_contimeout;
+extern _Thread_local int poll_contimeout;
 
 /*
  * Operating mode for a client or a server.
@@ -286,7 +286,7 @@ void	freeargs(arglist *);
 struct	download;
 struct	upload;
 
-extern int verbose;
+extern _Thread_local int verbose;
 
 #define MINIMUM(a, b) (((a) < (b)) ? (a) : (b))
 
@@ -445,6 +445,7 @@ void		 parse_file(const char *, enum rule_type);
 void		 send_rules(struct sess *, int);
 void		 recv_rules(struct sess *, int);
 int		 rules_match(const char *, int);
+void		 rules_reset(void);
 
 int		 rmatch(const char *, const char *, int);
 

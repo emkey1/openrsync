@@ -39,9 +39,9 @@ struct rule {
 	unsigned char		 leadingdir;
 };
 
-static struct rule	*rules;
-static size_t		 numrules;	/* number of rules */
-static size_t		 rulesz;	/* available size */
+static _Thread_local struct rule	*rules;
+static _Thread_local size_t		 numrules;	/* number of rules */
+static _Thread_local size_t		 rulesz;	/* available size */
 
 /* up to protocol 29 filter rules only support - + ! and no modifiers */
 
@@ -123,6 +123,22 @@ get_next_rule(void)
 	}
 
 	return rules + numrules - 1;
+}
+
+/*
+ * Forget the rules of an earlier run on this thread: without a process
+ * exit between runs they would apply to the next one too.
+ */
+void
+rules_reset(void)
+{
+	size_t i;
+
+	for (i = 0; i < numrules; i++)
+		free(rules[i].pattern);
+	free(rules);
+	rules = NULL;
+	numrules = rulesz = 0;
 }
 
 static enum rule_type
@@ -270,7 +286,7 @@ parse_file(const char *file, enum rule_type def)
 static const char *
 send_command(struct rule *r)
 {
-	static char buf[16];
+	static _Thread_local char buf[16];
 	char *b = buf;
 	char *ep = buf + sizeof(buf);
 
@@ -330,7 +346,7 @@ send_command(struct rule *r)
 static const char *
 postfix_command(struct rule *r)
 {
-	static char buf[8];
+	static _Thread_local char buf[8];
 
 	buf[0] = '\0';
 	if (r->onlydir)

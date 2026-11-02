@@ -24,8 +24,6 @@
 
 #include "extern.h"
 
-extern int verbose;
-
 /*
  * Log a message at level "level", starting at zero, which corresponds
  * to the current verbosity level opts->verbose (whose verbosity starts
