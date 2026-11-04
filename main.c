@@ -455,7 +455,7 @@ fargs_absolute_paths(struct fargs *f)
 int
 main(int argc, char *argv[])
 {
-	pid_t		 child;
+	pid_t		 child, reaped;
 	long long	 tmpint;
 	int		 fds[2], sd = -1, rc, c, st, i, lidx;
 	int		 timeout_explicit = 0;
@@ -813,9 +813,23 @@ basedir:
 		break;
 	}
 
+	/*
+	 * A server that has our good-bye ends by itself, so give it a moment
+	 * before closing.  The rsync in macOS exits 14 if it sees the end of
+	 * its input first, with everything already transferred.  Bounded, as
+	 * one that doesn't end needs the close to.
+	 */
+	reaped = 0;
+	for (i = 0; rc == 0 && reaped == 0 && i < 40; i++) {
+		if ((reaped = waitpid(child, &st, WNOHANG)) == 0)
+			usleep(50000);
+	}
+
 	close(fds[0]);
 
-	if (waitpid(child, &st, 0) == -1)
+	if (reaped == 0)
+		reaped = waitpid(child, &st, 0);
+	if (reaped == -1)
 		err(ERR_WAITPID, "waitpid");
 
 	/*
