@@ -24,6 +24,16 @@
 
 #include "extern.h"
 
+#ifdef PSCAL_TARGET_IOS
+/* After ^C, what stops working is only its result, as a killed process would never say. */
+#define RETURN_IF_INTERRUPTED() do {			\
+		if (pscal_openrsync_interrupted())	\
+			return;				\
+	} while (0)
+#else
+#define RETURN_IF_INTERRUPTED() do { } while (0)
+#endif
+
 /*
  * Log a message at level "level", starting at zero, which corresponds
  * to the current verbosity level opts->verbose (whose verbosity starts
@@ -66,6 +76,8 @@ rsync_errx(const char *fmt, ...)
 	char	*buf = NULL;
 	va_list	 ap;
 
+	RETURN_IF_INTERRUPTED();
+
 	if (fmt != NULL) {
 		va_start(ap, fmt);
 		if (vasprintf(&buf, fmt, ap) == -1) {
@@ -92,6 +104,8 @@ rsync_err(const char *fmt, ...)
 	va_list	 ap;
 	int	 er = errno;
 
+	RETURN_IF_INTERRUPTED();
+
 	if (fmt != NULL) {
 		va_start(ap, fmt);
 		if (vasprintf(&buf, fmt, ap) == -1) {
@@ -116,6 +130,8 @@ rsync_errx1(const char *fmt, ...)
 {
 	char	*buf = NULL;
 	va_list	 ap;
+
+	RETURN_IF_INTERRUPTED();
 
 	if (verbose < 1)
 		return;

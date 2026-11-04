@@ -812,6 +812,16 @@ basedir:
 		break;
 	}
 
+#ifdef PSCAL_TARGET_IOS
+	/*
+	 * ^C reaches the whole group, but a kill of this command alone
+	 * doesn't, and an ssh still connecting reads no input, so it wouldn't
+	 * notice the close below.
+	 */
+	if (pscal_openrsync_interrupted())
+		(void)kill(child, SIGINT);
+#endif
+
 	/*
 	 * A server that has our good-bye ends by itself, so give it a moment
 	 * before closing.  The rsync in macOS exits 14 if it sees the end of
@@ -850,6 +860,11 @@ basedir:
 		/* We only lost a server that couldn't use its destination. */
 		rc = WEXITSTATUS(st);
 	}
+
+#ifdef PSCAL_TARGET_IOS
+	if (pscal_openrsync_interrupted())
+		rc = 128 + SIGINT;
+#endif
 
 	exit(rc);
 usage:
