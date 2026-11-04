@@ -631,7 +631,14 @@ rsync_sender(struct sess *sess, int fdin,
 			wbufpos += ssz;
 			if (wbufpos == wbufsz)
 				wbufpos = wbufsz = 0;
-			pfd[1].revents &= ~POLLOUT;
+
+			/*
+			 * A phase's end goes on below without another poll.
+			 * Once it has the last one, the other side can say
+			 * good-bye or be gone, and the loop must not see that.
+			 */
+			if (wbufsz > 0 || up.stat.curst != BLKSTAT_PHASE)
+				pfd[1].revents &= ~POLLOUT;
 
 			/* This is usually in io.c... */
 
