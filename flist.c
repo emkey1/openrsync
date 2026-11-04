@@ -32,7 +32,6 @@
 #endif
 #include <limits.h>
 #include <inttypes.h>
-#include <search.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1396,8 +1395,7 @@ flist_gen_dels(struct sess *sess, const char *root, struct flist **fl,
 	struct flist	 *f;
 	struct stat	  st;
 	size_t		  cargvs = 0, i, j, max = 0, stripdir;
-	ENTRY		  hent;
-	ENTRY		 *hentp;
+	struct flist	  key;
 
 	*fl = NULL;
 	*sz = 0;
@@ -1470,31 +1468,19 @@ flist_gen_dels(struct sess *sess, const char *root, struct flist **fl,
 	LOG2("delete from %zu directories", cargvs);
 
 	/*
-	 * Next, use the standard hcreate(3) hashtable interface to hash
-	 * all of the files that we want to synchronise.
-	 * This way, we'll be able to determine which files we want to
-	 * delete in O(n) time instead of O(n * search) time.
-	 * Plus, we can do the scan in-band and only allocate the files
-	 * we want to delete.
+	 * Next, make sure we can binary search the files that we want to
+	 * synchronise: flist_recv() sorted them, and a name out of place
+	 * could delete a file we want to keep.
+	 * hcreate(3) has only one table per process. Where a transfer is a
+	 * thread, a second --delete failed to create its own and then
+	 * destroyed the first one's while it was in use.
+	 * We can still do the scan in-band and only allocate the files we
+	 * want to delete.
 	 */
 
-	if (!hcreate(wflsz)) {
-		ERR("hcreate");
-		goto out;
-	}
-
-	for (i = 0; i < wflsz; i++) {
-		memset(&hent, 0, sizeof(ENTRY));
-		if ((hent.key = strdup(wfl[i].wpath)) == NULL) {
-			ERR("strdup");
-			goto out;
-		}
-		if ((hentp = hsearch(hent, ENTER)) == NULL) {
-			ERR("hsearch");
-			goto out;
-		} else if (hentp->key != hent.key) {
-			ERRX("%s: duplicate", wfl[i].wpath);
-			free(hent.key);
+	for (i = 1; i < wflsz; i++) {
+		if (strcmp(wfl[i - 1].wpath, wfl[i].wpath) >= 0) {
+			ERRX("%s: duplicate or out of order", wfl[i].wpath);
 			goto out;
 		}
 	}
@@ -1556,11 +1542,12 @@ flist_gen_dels(struct sess *sess, const char *root, struct flist **fl,
 			continue;
 		}
 
-		/* Look up in hashtable. */
+		/* Look up in the files we want to synchronise. */
 
-		memset(&hent, 0, sizeof(ENTRY));
-		hent.key = ent->fts_path + stripdir;
-		if (hsearch(hent, FIND) != NULL)
+		memset(&key, 0, sizeof(key));
+		key.wpath = ent->fts_path + stripdir;
+		if (bsearch(&key, wfl, wflsz, sizeof(struct flist),
+		    flist_cmp) != NULL)
 			continue;
 
 		/* Not found: we'll delete it. */
@@ -1594,7 +1581,6 @@ out:
 		free(cargv[i]);
 	free(cargv);
 	free(fts_root);
-	hdestroy();
 	return rc;
 }
 
