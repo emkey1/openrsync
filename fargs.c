@@ -202,7 +202,8 @@ fargs_cmdline(struct sess *sess, const struct fargs *f, size_t *skip)
 		for (j = 0; j < f->sourcesz; j++)
 			addargs(&args, "%s", f->sources[j]);
 	} else
-		addargs(&args, "%s", f->sink);
+		/* A remote shell would lose an empty one: "host:" is its home. */
+		addargs(&args, "%s", f->sink[0] != '\0' ? f->sink : ".");
 
 	return args.list;
 }

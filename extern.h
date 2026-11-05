@@ -64,6 +64,7 @@
  */
 #define ERR_SYNTAX	1
 #define ERR_PROTOCOL	2
+#define ERR_FILESELECT	3
 #define ERR_SOCK_IO	10
 #define ERR_FILE_IO	11
 #define ERR_WIREPROTO	12

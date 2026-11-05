@@ -72,9 +72,9 @@ log_dir(struct sess *sess, const struct flist *f)
 
 	if (sess->opts->server)
 		return;
-	sz = strlen(f->path);
+	sz = strlen(f->wpath);
 	assert(sz > 0);
-	LOG1("%s%s", f->path, (f->path[sz - 1] == '/') ? "" : "/");
+	LOG1("%s%s", f->wpath, (f->wpath[sz - 1] == '/') ? "" : "/");
 }
 
 /*
@@ -86,7 +86,7 @@ log_symlink(struct sess *sess, const struct flist *f)
 {
 
 	if (!sess->opts->server)
-		LOG1("%s -> %s", f->path, f->link);
+		LOG1("%s -> %s", f->wpath, f->link);
 }
 
 /*
@@ -97,7 +97,7 @@ log_file(struct sess *sess, const struct flist *f)
 {
 
 	if (!sess->opts->server)
-		LOG1("%s", f->path);
+		LOG1("%s", f->wpath);
 }
 
 /*
@@ -767,9 +767,13 @@ pre_file(const struct upload *p, int *filefd, off_t *size,
 	rc = check_file(p->rootfd, f, &st, sess);
 	if (rc == -1)
 		return -1;
+	/*
+	 * A link, or anything else that isn't a file, has nothing to offer
+	 * as a basis and opening it could follow it or block: it just goes.
+	 */
 	if (rc == 2 && !S_ISREG(st.st_mode)) {
-		if (S_ISDIR(st.st_mode) &&
-		    unlinkat(p->rootfd, f->path, AT_REMOVEDIR) == -1) {
+		if (unlinkat(p->rootfd, f->path,
+		    S_ISDIR(st.st_mode) ? AT_REMOVEDIR : 0) == -1) {
 			ERR("%s: unlinkat", f->path);
 			return -1;
 		}

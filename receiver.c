@@ -172,6 +172,69 @@ rsync_set_metadata_at(struct sess *sess, int newfile, int rootfd,
 }
 
 /*
+ * Work out what the destination means, now that the file list says what
+ * is coming, and make it if it needs making.
+ * An existing directory takes the files.
+ * Otherwise a single entry takes the destination as its own name, with
+ * the directory above it to work in, unless a trailing slash asks for a
+ * directory, as more than one entry needs.
+ * Uses our current umask: we might set the permissions on a directory
+ * we make in post_dir().
+ * Returns the directory to work in, which the caller frees, and in
+ * "name" the entry's new name, if it has one.
+ */
+static char *
+receiver_dest(const struct sess *sess, const char *root,
+	const struct flist *fl, size_t flsz, const char **name)
+{
+	struct stat	 st;
+	const char	*cp;
+	char		*dir;
+	size_t		 len = strlen(root);
+
+	*name = NULL;
+
+	if (stat(root, &st) == 0) {
+		if (S_ISDIR(st.st_mode))
+			return strdup(root);
+		if (flsz > 1)
+			errx(ERR_FILESELECT, "%s: not a directory, "
+			    "with more than one file to copy", root);
+		if (flsz == 1 && S_ISDIR(fl[0].st.mode))
+			errx(ERR_FILESELECT, "%s: not a directory, "
+			    "so it can't be replaced by one", root);
+		/*
+		 * Replacing what's there would take a device away, or in
+		 * the app the link in its own /dev that leads to one.
+		 */
+		if (flsz > 0 && (S_ISCHR(st.st_mode) || S_ISBLK(st.st_mode)))
+			errx(ERR_FILESELECT, "%s: a device can't be "
+			    "replaced", root);
+	} else if (errno != ENOENT) {
+		err(ERR_FILESELECT, "%s: stat", root);
+	} else if (flsz > 1 || (len > 0 && root[len - 1] == '/')) {
+		if ((dir = strdup(root)) == NULL)
+			err(ERR_NOMEM, NULL);
+		if (!sess->opts->dry_run && mkpath(dir) < 0)
+			err(ERR_FILE_IO, "%s: mkpath", root);
+		return dir;
+	}
+
+	if ((cp = strrchr(root, '/')) == NULL) {
+		*name = root;
+		return strdup(".");
+	}
+	*name = cp + 1;
+	if (cp == root)
+		return strdup("/");
+	if ((dir = strndup(root, cp - root)) == NULL)
+		err(ERR_NOMEM, NULL);
+	if (stat(dir, &st) == -1)
+		err(ERR_FILESELECT, "%s: stat", dir);
+	return dir;
+}
+
+/*
  * Pledges: unveil, unix, rpath, cpath, wpath, stdio, fattr, chown.
  * Pledges (dry-run): -unix, -cpath, -wpath, -fattr, -chown.
  */
@@ -180,7 +243,8 @@ rsync_receiver(struct sess *sess, int fdin, int fdout, const char *root)
 {
 	struct flist	*fl = NULL, *dfl = NULL;
 	size_t		 i, flsz = 0, dflsz = 0;
-	char		*tofree;
+	const char	*name;
+	char		*dir = NULL, *sentname = NULL;
 	int		 rc = 0, dfd = -1, phase = 0, c;
 	int32_t		 ioerror;
 #ifndef	O_DIRECTORY
@@ -193,44 +257,6 @@ rsync_receiver(struct sess *sess, int fdin, int fdout, const char *root)
 
 	if (pledge("stdio unix rpath wpath cpath dpath fattr chown getpw unveil", NULL) == -1)
 		err(ERR_IPC, "pledge");
-
-	/*
-	 * Create the path for our destination directory, if we're not
-	 * in dry-run mode (which would otherwise crash w/the pledge).
-	 * This uses our current umask: we might set the permissions on
-	 * this directory in post_dir().
-	 */
-
-	if (!sess->opts->dry_run) {
-		if ((tofree = strdup(root)) == NULL)
-			err(ERR_NOMEM, NULL);
-		if (mkpath(tofree) < 0)
-			err(ERR_FILE_IO, "%s: mkpath", tofree);
-		free(tofree);
-	}
-
-	/*
-	 * Make our entire view of the file-system be limited to what's
-	 * in the root directory.
-	 * This prevents us from accidentally (or "under the influence")
-	 * writing into other parts of the file-system.
-	 */
-	if (sess->opts->basedir[0]) {
-		/*
-		 * XXX just unveil everything for read
-		 * Could unveil each basedir or maybe a common path
-		 * also the fact that relative path are relative to the
-		 * root does not help.
-		 */
-		if (unveil("/", "r") == -1)
-			err(ERR_IPC, "%s: unveil", root);
-	}
-
-	if (unveil(root, "rwc") == -1)
-		err(ERR_IPC, "%s: unveil", root);
-
-	if (unveil(NULL, NULL) == -1)
-		err(ERR_IPC, "unveil");
 
 	/* Client sends exclusions. */
 	if (!sess->opts->server)
@@ -267,6 +293,37 @@ rsync_receiver(struct sess *sess, int fdin, int fdout, const char *root)
 	} else if (!sess->opts->server)
 		LOG1("Transfer starting: %zu files", flsz);
 
+	/*
+	 * Only the file list says what the destination is, so this can't
+	 * come any sooner.
+	 */
+
+	if ((dir = receiver_dest(sess, root, fl, flsz, &name)) == NULL)
+		err(ERR_NOMEM, NULL);
+
+	/*
+	 * Make our entire view of the file-system be limited to what's
+	 * in the root directory.
+	 * This prevents us from accidentally (or "under the influence")
+	 * writing into other parts of the file-system.
+	 */
+	if (sess->opts->basedir[0]) {
+		/*
+		 * XXX just unveil everything for read
+		 * Could unveil each basedir or maybe a common path
+		 * also the fact that relative path are relative to the
+		 * root does not help.
+		 */
+		if (unveil("/", "r") == -1)
+			err(ERR_IPC, "%s: unveil", dir);
+	}
+
+	if (unveil(dir, "rwc") == -1)
+		err(ERR_IPC, "%s: unveil", dir);
+
+	if (unveil(NULL, NULL) == -1)
+		err(ERR_IPC, "unveil");
+
 	LOG2("%s: receiver destination", root);
 
 	/*
@@ -278,17 +335,25 @@ rsync_receiver(struct sess *sess, int fdin, int fdout, const char *root)
 
 	if (!sess->opts->dry_run) {
 #ifdef O_DIRECTORY
-		dfd = open(root, O_RDONLY | O_DIRECTORY);
+		dfd = open(dir, O_RDONLY | O_DIRECTORY);
 		if (dfd == -1)
-			err(ERR_FILE_IO, "%s: open", root);
+			err(ERR_FILE_IO, "%s: open", dir);
 #else
-		if ((dfd = open(root, O_RDONLY, 0)) == -1)
-			err(ERR_FILE_IO, "%s: open", root);
+		if ((dfd = open(dir, O_RDONLY, 0)) == -1)
+			err(ERR_FILE_IO, "%s: open", dir);
 		else if (fstat(dfd, &st) == -1)
-			err(ERR_FILE_IO, "%s: fstat", root);
+			err(ERR_FILE_IO, "%s: fstat", dir);
 		else if (!S_ISDIR(st.st_mode))
-			errx(ERR_FILE_IO, "%s: not a directory", root);
+			errx(ERR_FILE_IO, "%s: not a directory", dir);
 #endif
+	}
+
+	/* What the entry came as stays in wpath, for messages. */
+
+	if (name != NULL && flsz > 0) {
+		sentname = fl[0].path;
+		if ((fl[0].path = strdup(name)) == NULL)
+			err(ERR_NOMEM, NULL);
 	}
 
 	/*
@@ -298,6 +363,7 @@ rsync_receiver(struct sess *sess, int fdin, int fdout, const char *root)
 
 	if (sess->opts->del &&
 	    sess->opts->recursive &&
+	    name == NULL && flsz > 0 &&
 	    !flist_gen_dels(sess, root, &dfl, &dflsz, fl, flsz)) {
 		ERRX1("rsync_receiver");
 		goto out;
@@ -472,5 +538,7 @@ out:
 	download_free(dl);
 	flist_free(fl, flsz);
 	flist_free(dfl, dflsz);
+	free(sentname);
+	free(dir);
 	return rc;
 }

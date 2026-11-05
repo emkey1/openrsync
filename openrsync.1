@@ -276,15 +276,19 @@ or symbolic links
 .Pq only with Fl l .
 The destination
 .Ar directory
-must be a directory and is created if not found.
+is used as a directory if it is one, if it ends in a slash, or if there is
+more than one file to copy, and in those cases is created if not found.
+Otherwise the one file to copy takes its name, in the directory above it,
+which must exist.
 .\" .Sh PATTERNS AND RULES
 .\" .Sh ENVIRONMENT
 .\" .Sh FILES
 .Sh EXIT STATUS
 The
 .Nm
-utility exits 0 on success, 1 if an error occurs, or 2 if the remote
-protocol version is older than the local protocol version.
+utility exits 0 on success, 1 if an error occurs, 2 if the remote
+protocol version is older than the local protocol version, or 3 if the
+destination can't be used.
 .Sh EXAMPLES
 A common invocation of
 .Nm

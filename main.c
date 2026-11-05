@@ -112,6 +112,8 @@ fargs_parse(size_t argc, char *argv[], struct opts *opts)
 
 	if ((f->sink = strdup(argv[i])) == NULL)
 		err(ERR_NOMEM, NULL);
+	if (f->sink[0] == '\0')
+		errx(ERR_SYNTAX, "empty destination");
 
 	/*
 	 * Test files for its locality.
@@ -420,7 +422,7 @@ const struct option	 lopts[] = {
  * app's virtual view, so messages read as the user would expect.
  */
 static char *
-fargs_absolute_path(char *path)
+fargs_absolute_path(char *path, int source)
 {
 	char		 cwd[PATH_MAX], *absolute;
 	const char	*base;
@@ -428,12 +430,16 @@ fargs_absolute_path(char *path)
 	if (getcwd(cwd, sizeof(cwd)) == NULL)
 		err(ERR_FILE_IO, "getcwd");
 
-	/* With "." or ".." the name is no use: they mean the contents. */
+	/*
+	 * With "." or ".." a source's name is no use: they mean the contents.
+	 * A destination's slash would ask for a directory, so it gets none.
+	 */
 	base = strrchr(path, '/');
 	base = base != NULL ? base + 1 : path;
 	if (asprintf(&absolute, "%s%s%s%s", path[0] == '/' ? "" : cwd,
 	    path[0] == '/' ? "" : "/", path,
-	    strcmp(base, ".") == 0 || strcmp(base, "..") == 0 ? "/" : "") == -1)
+	    source && (strcmp(base, ".") == 0 || strcmp(base, "..") == 0) ?
+	    "/" : "") == -1)
 		err(ERR_NOMEM, NULL);
 	free(path);
 	return absolute;
@@ -446,9 +452,9 @@ fargs_absolute_paths(struct fargs *f)
 
 	if (f->host == NULL || f->mode == FARGS_SENDER)
 		for (i = 0; i < f->sourcesz; i++)
-			f->sources[i] = fargs_absolute_path(f->sources[i]);
+			f->sources[i] = fargs_absolute_path(f->sources[i], 1);
 	if (f->host == NULL || f->mode == FARGS_RECEIVER)
-		f->sink = fargs_absolute_path(f->sink);
+		f->sink = fargs_absolute_path(f->sink, 0);
 }
 #endif
 
@@ -845,6 +851,11 @@ basedir:
 			rc = ERR_TERMIMATED;
 		else
 			rc = ERR_WAITPID;
+	} else if (rc == 1 && WIFEXITED(st) &&
+	    (WEXITSTATUS(st) == ERR_FILESELECT ||
+	     WEXITSTATUS(st) == ERR_FILE_IO)) {
+		/* We only lost a server that couldn't use its destination. */
+		rc = WEXITSTATUS(st);
 	}
 
 	exit(rc);

@@ -103,7 +103,7 @@ log_file(struct sess *sess,
 	}
 
 	LOG1("%s (%.*f %s, %.1f%% downloaded)",
-	    f->path, prec, tot, unit, frac);
+	    f->wpath, prec, tot, unit, frac);
 }
 
 /*
@@ -127,10 +127,10 @@ progress_update(const struct sess *sess, const struct download *dl,
 		return;
 
 	if (!done)
-		printf("\r%s  %12jd  %5.1f%%", f->path,
+		printf("\r%s  %12jd  %5.1f%%", f->wpath,
 		    (intmax_t)dl->total, frac);
 	else
-		printf("\r%s  %12jd  %5.1f%% (done)\n", f->path,
+		printf("\r%s  %12jd  %5.1f%% (done)\n", f->wpath,
 		    (intmax_t)dl->total, 100.0);
 	fflush(stdout);
 }
@@ -600,6 +600,19 @@ again:
 	if (!rsync_set_metadata(sess, 1, p->fd, f, p->fname)) {
 		ERRX1("rsync_set_metadata");
 		goto out;
+	}
+
+	/* That gave it the sender's mode: an updated file keeps its own. */
+
+	if (p->ofd != -1 && !sess->opts->preserve_perms) {
+		if (fstat(p->ofd, &st) == -1) {
+			ERR("%s: fstat", f->path);
+			goto out;
+		}
+		if (fchmod(p->fd, st.st_mode & ~S_IFMT) == -1) {
+			ERR("%s: fchmod", p->fname);
+			goto out;
+		}
 	}
 
 	/* Finally, rename the temporary to the real file. */
