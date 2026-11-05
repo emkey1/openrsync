@@ -714,13 +714,6 @@ basedir:
 	 */
 
 	if (opts.server) {
-#ifdef PSCAL_TARGET_IOS
-		/*
-		 * In a background job a read of fd 0 stops the job, as a read of
-		 * the terminal would.  This one is the socket to the client.
-		 */
-		vprocSetStopUnsupported(vprocPid(vprocCurrent()), true);
-#endif
 		rc = rsync_server(&opts, (size_t)argc, argv);
 		rules_reset();
 		exit(rc);
