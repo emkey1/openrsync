@@ -858,6 +858,24 @@ flist_stripdir(const char *root)
 }
 
 /*
+ * What follows the first "strip" bytes of an fts(3) path: the part below
+ * the root.  Given a root that ends in "/", the fts(3) in iOS 17 adds
+ * another, so a child of "a/" is "a//b" there and "a/b" elsewhere, and
+ * the root itself may come back shorter than it went in.
+ */
+static const char *
+flist_fts_rel(const FTSENT *ent, size_t strip)
+{
+	const char	*rel;
+
+	if (ent->fts_pathlen <= strip)
+		return "";
+	for (rel = ent->fts_path + strip; *rel == '/'; rel++)
+		continue;
+	return rel;
+}
+
+/*
  * Generate a flist possibly-recursively given a file root, which may
  * also be a regular file or symlink.
  * On success, augments the generated list in "flp" of length "sz".
@@ -966,7 +984,7 @@ flist_gen_dirent(struct sess *sess, char *root, struct flist **fl, size_t *sz,
 		/* We don't allow symlinks without -l. */
 
 		assert(ent->fts_statp != NULL);
-		rel = ent->fts_path + fts_stripdir;
+		rel = flist_fts_rel(ent, fts_stripdir);
 		if (S_ISLNK(ent->fts_statp->st_mode) &&
 		    !sess->opts->preserve_links) {
 			WARNX("%s: skipping symlink", rel);
@@ -1396,6 +1414,7 @@ flist_gen_dels(struct sess *sess, const char *root, struct flist **fl,
 	struct stat	  st;
 	size_t		  cargvs = 0, i, j, max = 0, stripdir;
 	struct flist	  key;
+	const char	 *rel;
 
 	*fl = NULL;
 	*sz = 0;
@@ -1506,6 +1525,7 @@ flist_gen_dels(struct sess *sess, const char *root, struct flist **fl,
 			continue;
 		} else if (stripdir >= ent->fts_pathlen)
 			continue;
+		rel = flist_fts_rel(ent, stripdir);
 
 		assert(ent->fts_statp != NULL);
 
@@ -1534,10 +1554,8 @@ flist_gen_dels(struct sess *sess, const char *root, struct flist **fl,
 
 		/* filter files on delete */
 		/* TODO handle --delete-excluded */
-		if (rules_match(ent->fts_path + stripdir,
-		    (ent->fts_info == FTS_D)) == -1) {
-			WARNX("skip excluded file %s",
-			    ent->fts_path + stripdir);
+		if (rules_match(rel, (ent->fts_info == FTS_D)) == -1) {
+			WARNX("skip excluded file %s", rel);
 			fts_set(fts, ent, FTS_SKIP);
 			continue;
 		}
@@ -1545,7 +1563,7 @@ flist_gen_dels(struct sess *sess, const char *root, struct flist **fl,
 		/* Look up in the files we want to synchronise. */
 
 		memset(&key, 0, sizeof(key));
-		key.wpath = ent->fts_path + stripdir;
+		key.wpath = rel;
 		if (bsearch(&key, wfl, wflsz, sizeof(struct flist),
 		    flist_cmp) != NULL)
 			continue;
@@ -1562,7 +1580,7 @@ flist_gen_dels(struct sess *sess, const char *root, struct flist **fl,
 			ERR("strdup");
 			goto out;
 		}
-		f->wpath = f->path + stripdir;
+		f->wpath = f->path + (rel - ent->fts_path);
 		flist_copy_stat(f, ent->fts_statp);
 		errno = 0;
 	}
